@@ -1,0 +1,14 @@
+# things
+.venv
+tests
+
+# private
+*.pem
+*.db
+
+# pio
+.pio
+.pio-core
+
+# vscode
+.vscode
