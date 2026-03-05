@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from ..deps import get_db
@@ -172,11 +172,34 @@ def patch_node_profile(node_id: str, patch: NodeProfilePatch, request: Request, 
 
     db.commit()
 
-    cards = list_nodes(request=request, db=db)
-    for card in cards:
-        if card.node_id == node_id:
-            return card
-    raise HTTPException(status_code=404, detail="Node not found")
+    status_service = request.app.state.status_service
+    last_seen = latest_node_seen_ts(db, node_id)
+    computed = status_service.compute(last_seen)
+    status = NodeStatus(
+        state=computed.state,
+        intensity=computed.intensity,
+        age_seconds=computed.age_seconds,
+        last_seen=last_seen,
+    )
+    line_rows = db.scalars(
+        select(NodeCardLine).where(NodeCardLine.node_id == node_id).order_by(NodeCardLine.line_index.asc())
+    ).all()
+    if not line_rows:
+        line_rows = [
+            NodeCardLine(node_id=node_id, line_index=0, source_type="token", source_ref="status", label="Status"),
+            NodeCardLine(node_id=node_id, line_index=1, source_type="token", source_ref="last_seen", label="Seen"),
+            NodeCardLine(node_id=node_id, line_index=2, source_type="token", source_ref="age_s", label="Age"),
+            NodeCardLine(node_id=node_id, line_index=3, source_type="token", source_ref="", label=""),
+        ]
+    lines = [_resolve_line(db, node, line, status) for line in line_rows]
+    return NodeCardResponse(
+        node_id=node.node_id,
+        alias=node.alias,
+        location=node.location,
+        card_color_override=node.card_color_override,
+        status=status,
+        lines=sorted(lines, key=lambda item: item.line_index),
+    )
 
 
 @router.get("/nodes/{node_id}/channels", response_model=list[ChannelDescriptor])
@@ -185,17 +208,29 @@ def list_node_channels(node_id: str, db: Session = Depends(get_db)) -> list[Chan
     if node is None:
         raise HTTPException(status_code=404, detail="Node not found")
 
-    recent = db.scalars(
-        select(ChannelSample).where(ChannelSample.node_id == node_id).order_by(ChannelSample.ts.desc()).limit(5000)
+    subq = (
+        select(
+            ChannelSample.sid,
+            ChannelSample.cid,
+            func.max(ChannelSample.ts).label("latest_ts"),
+        )
+        .where(ChannelSample.node_id == node_id)
+        .group_by(ChannelSample.sid, ChannelSample.cid)
+        .subquery()
+    )
+    rows = db.scalars(
+        select(ChannelSample)
+        .where(ChannelSample.node_id == node_id)
+        .join(
+            subq,
+            (ChannelSample.sid == subq.c.sid)
+            & (ChannelSample.cid == subq.c.cid)
+            & (ChannelSample.ts == subq.c.latest_ts),
+        )
     ).all()
 
-    seen: set[tuple[str, str]] = set()
     out: list[ChannelDescriptor] = []
-    for sample in recent:
-        key = (sample.sid, sample.cid)
-        if key in seen:
-            continue
-        seen.add(key)
+    for sample in rows:
         latest_value = sample.numeric_val
         if sample.bool_val is not None:
             latest_value = sample.bool_val

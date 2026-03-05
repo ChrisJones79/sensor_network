@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Any, Dict, List, Optional, Union, Literal
+from typing import Any
 
 
 # ----------------------------
@@ -116,8 +116,8 @@ class AckRC(IntEnum):
 
 
 # Value types allowed at the "val" field. CBOR supports them natively.
-CborScalar = Union[int, float, bool, str, bytes, None]
-CborValue  = Union[CborScalar, List[Any], Dict[Any, Any]]
+CborScalar = int | float | bool | str | bytes | None
+CborValue  = CborScalar | list[Any] | dict[Any, Any]
 
 
 # ----------------------------
@@ -131,7 +131,7 @@ class ChannelSpec:
     """
     cid: ChannelId
     unit: str                     # e.g. "C", "%RH", "V", "bool"
-    qmask: Optional[int] = None   # optional: which q bits are meaningful
+    qmask: int | None = None      # optional: which q bits are meaningful
 
 
 @dataclass
@@ -142,10 +142,10 @@ class SensorSpec:
     sid: SensorId
     stype: str                   # driver key, e.g. "bme280", "gpio_switch", "adc"
     bus: BusType
-    pins: Dict[str, Any]         # pin assignment map (interpreted by driver)
-    params: Dict[str, Any] = field(default_factory=dict)  # addr, calibration, etc.
-    chans: List[ChannelSpec] = field(default_factory=list)
-    period_ms: Optional[int] = None  # per-sensor publish/read period override
+    pins: dict[str, Any]         # pin assignment map (interpreted by driver)
+    params: dict[str, Any] = field(default_factory=dict)  # addr, calibration, etc.
+    chans: list[ChannelSpec] = field(default_factory=list)
+    period_ms: int | None = None  # per-sensor publish/read period override
 
 
 @dataclass
@@ -167,9 +167,9 @@ class NodeConfig:
     cfg_schema: int                    # config schema version (not CBOR envelope ver)
     cfg_id: str                        # immutable id for audit/log correlation
     applies_to: NodeId                 # must equal node nid
-    groups: List[GroupId] = field(default_factory=list)
+    groups: list[GroupId] = field(default_factory=list)
     defaults: NodeDefaults = field(default_factory=NodeDefaults)
-    sensors: List[SensorSpec] = field(default_factory=list)
+    sensors: list[SensorSpec] = field(default_factory=list)
 
 
 # ----------------------------
@@ -179,17 +179,17 @@ class NodeConfig:
 @dataclass
 class ChannelSample:
     cid: ChannelId
-    unit: Optional[str] = None
+    unit: str | None = None
     val: CborValue = None
-    q: Optional[int] = None           # quality bitmask
-    t_up_ms: Optional[int] = None     # optional per-sample uptime timestamp
+    q: int | None = None           # quality bitmask
+    t_up_ms: int | None = None     # optional per-sample uptime timestamp
 
 
 @dataclass
 class SensorBlock:
     sid: SensorId
-    stype: Optional[str] = None
-    channels: List[ChannelSample] = field(default_factory=list)
+    stype: str | None = None
+    channels: list[ChannelSample] = field(default_factory=list)
 
 
 @dataclass
@@ -199,9 +199,9 @@ class TelemetryFrame:
     nid: NodeId
     seq: int
     t_up_ms: int
-    mid: Optional[bytes] = None
-    sensors: List[SensorBlock] = field(default_factory=list)
-    meta: Dict[str, Any] = field(default_factory=dict)  # optional extra fields
+    mid: bytes | None = None
+    sensors: list[SensorBlock] = field(default_factory=list)
+    meta: dict[str, Any] = field(default_factory=dict)  # optional extra fields
 
 
 @dataclass
@@ -211,11 +211,11 @@ class InventoryFrame:
     nid: NodeId
     seq: int
     t_up_ms: int
-    mid: Optional[bytes] = None
+    mid: bytes | None = None
     hw: str = ""
     fw: str = ""
-    caps: List[str] = field(default_factory=list)
-    net: Dict[str, Any] = field(default_factory=dict)
+    caps: list[str] = field(default_factory=list)
+    net: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -227,9 +227,9 @@ class CommandFrame:
     t_up_ms: int              # sbc may set 0; node ignores
     mid: bytes                # message id for correlation
     op: CmdOp
-    args: Dict[str, Any] = field(default_factory=dict)
-    target_sid: Optional[SensorId] = None
-    sig: Optional[bytes] = None      # optional command auth signature
+    args: dict[str, Any] = field(default_factory=dict)
+    target_sid: SensorId | None = None
+    sig: bytes | None = None         # optional command auth signature
 
 
 @dataclass
@@ -239,12 +239,12 @@ class AckFrame:
     nid: NodeId
     seq: int
     t_up_ms: int
-    mid: Optional[bytes] = None
+    mid: bytes | None = None
     ack_mid: bytes = b""
     rc: AckRC = AckRC.OK
-    detail: Optional[str] = None
-    applied_cfg_id: Optional[str] = None
-    reboot_required: Optional[bool] = None
+    detail: str | None = None
+    applied_cfg_id: str | None = None
+    reboot_required: bool | None = None
 
 
 # ----------------------------
@@ -298,8 +298,8 @@ K_REBOOT   = 44
 # Wire conversion helpers (dict <-> dataclass)
 # ----------------------------
 
-def tele_to_wire(t: TelemetryFrame) -> Dict[int, Any]:
-    d: Dict[int, Any] = {
+def tele_to_wire(t: TelemetryFrame) -> dict[int, Any]:
+    d: dict[int, Any] = {
         K_VER: t.ver, K_TYP: int(t.typ), K_NID: t.nid, K_SEQ: t.seq, K_TUP: t.t_up_ms,
     }
     if t.mid is not None:
@@ -326,8 +326,8 @@ def tele_to_wire(t: TelemetryFrame) -> Dict[int, Any]:
     return d
 
 
-def inv_to_wire(i: InventoryFrame) -> Dict[int, Any]:
-    d: Dict[int, Any] = {
+def inv_to_wire(i: InventoryFrame) -> dict[int, Any]:
+    d: dict[int, Any] = {
         K_VER: i.ver, K_TYP: int(i.typ), K_NID: i.nid, K_SEQ: i.seq, K_TUP: i.t_up_ms,
         K_HW: i.hw, K_FW: i.fw, K_CAPS: i.caps,
     }
@@ -338,8 +338,8 @@ def inv_to_wire(i: InventoryFrame) -> Dict[int, Any]:
     return d
 
 
-def cmd_to_wire(c: CommandFrame) -> Dict[int, Any]:
-    d: Dict[int, Any] = {
+def cmd_to_wire(c: CommandFrame) -> dict[int, Any]:
+    d: dict[int, Any] = {
         K_VER: c.ver, K_TYP: int(c.typ), K_NID: c.nid, K_SEQ: c.seq, K_TUP: c.t_up_ms, K_MID: c.mid,
         K_CMD: int(c.op), K_ARGS: c.args,
     }
@@ -350,8 +350,8 @@ def cmd_to_wire(c: CommandFrame) -> Dict[int, Any]:
     return d
 
 
-def ack_to_wire(a: AckFrame) -> Dict[int, Any]:
-    d: Dict[int, Any] = {
+def ack_to_wire(a: AckFrame) -> dict[int, Any]:
+    d: dict[int, Any] = {
         K_VER: a.ver, K_TYP: int(a.typ), K_NID: a.nid, K_SEQ: a.seq, K_TUP: a.t_up_ms,
         K_ACK_MID: a.ack_mid, K_RC: int(a.rc),
     }
@@ -370,7 +370,7 @@ def ack_to_wire(a: AckFrame) -> Dict[int, Any]:
 # Config -> wire (sent inside SET_CONFIG args)
 # ----------------------------
 
-def config_to_args(cfg: NodeConfig) -> Dict[str, Any]:
+def config_to_args(cfg: NodeConfig) -> dict[str, Any]:
     """
     Human-readable keys inside args are fine; CBOR still compresses.
     If you want pure integer keys everywhere, mirror the same approach here.

@@ -64,34 +64,26 @@ export default function PlotWorkspace({ selectedNodeIds, liveTick }: Props) {
 
   async function reloadPlotData(activeConfig: DashboardPlotConfig): Promise<void> {
     setLoading(true);
-    const next: Record<string, TraceSeries[]> = {};
     const now = new Date();
 
-    for (const plot of activeConfig.plots) {
-      if (plot.traces.length === 0) {
-        next[plot.plot_id] = [];
-        continue;
-      }
+    const entries = await Promise.all(
+      activeConfig.plots.map(async (plot) => {
+        if (plot.traces.length === 0) return [plot.plot_id, []] as const;
+        const rangeMinutes = Number(plot.options.range_minutes ?? 10);
+        const defaultStart = new Date(now.getTime() - rangeMinutes * 60_000).toISOString();
+        const defaultEnd = now.toISOString();
+        const startTs = plot.live_mode ? defaultStart : optionString(plot.options.start_ts, defaultStart);
+        const endTs = plot.live_mode ? defaultEnd : optionString(plot.options.end_ts, defaultEnd);
+        try {
+          const resp = await queryTelemetry(plot.traces, startTs, endTs);
+          return [plot.plot_id, resp.traces] as const;
+        } catch {
+          return [plot.plot_id, [] as TraceSeries[]] as const;
+        }
+      })
+    );
 
-      const rangeMinutes = Number(plot.options.range_minutes ?? 10);
-      const defaultStart = new Date(now.getTime() - rangeMinutes * 60_000).toISOString();
-      const defaultEnd = now.toISOString();
-      const startTs = plot.live_mode
-        ? defaultStart
-        : optionString(plot.options.start_ts, defaultStart);
-      const endTs = plot.live_mode
-        ? defaultEnd
-        : optionString(plot.options.end_ts, defaultEnd);
-
-      try {
-        const resp = await queryTelemetry(plot.traces, startTs, endTs);
-        next[plot.plot_id] = resp.traces;
-      } catch {
-        next[plot.plot_id] = [];
-      }
-    }
-
-    setSeriesByPlot(next);
+    setSeriesByPlot(Object.fromEntries(entries));
     setLoading(false);
   }
 

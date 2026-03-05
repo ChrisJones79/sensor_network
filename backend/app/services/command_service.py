@@ -79,17 +79,15 @@ class CommandService:
             return cbor2.dumps(payload_map)
         return str(payload_map).encode("utf-8")
 
-
-
-def mark_timed_out_commands(db: Session) -> list[str]:
-    now = datetime.now(timezone.utc)
-    stmt = select(CommandLog).where(CommandLog.status == "pending", CommandLog.timeout_ts < now)
-    rows = db.scalars(stmt).all()
-    ids: list[str] = []
-    for row in rows:
-        row.status = "timeout"
-        row.ack_detail = "No ACK before timeout"
-        ids.append(row.command_id)
-    if rows:
-        db.commit()
-    return ids
+    def mark_timed_out(self, db: Session) -> list[str]:
+        now = datetime.now(timezone.utc)
+        stmt = select(CommandLog).where(CommandLog.status == "pending", CommandLog.timeout_ts < now)
+        rows = db.scalars(stmt).all()
+        ids: list[str] = []
+        for row in rows:
+            row.status = "timeout"
+            row.ack_detail = "No ACK before timeout"
+            ids.append(row.command_id)
+        if rows:
+            db.commit()
+        return ids

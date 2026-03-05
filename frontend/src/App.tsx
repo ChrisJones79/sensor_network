@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { fetchNodes, liveWsUrl } from './api/client';
 import CommissioningPanel from './components/commissioning/CommissioningPanel';
@@ -17,6 +17,7 @@ export default function App() {
   const [liveTick, setLiveTick] = useState(0);
   const [connection, setConnection] = useState('disconnected');
   const { selectedNodeIds, toggleNode } = useSelectedNodes();
+  const pendingRefresh = useRef(false);
 
   async function refreshNodes(): Promise<void> {
     try {
@@ -45,7 +46,13 @@ export default function App() {
         const message = JSON.parse(evt.data);
         if (message.type === 'telemetry' || message.type === 'inventory' || message.type === 'command') {
           setLiveTick((v) => v + 1);
-          void refreshNodes();
+          if (!pendingRefresh.current) {
+            pendingRefresh.current = true;
+            window.setTimeout(() => {
+              pendingRefresh.current = false;
+              void refreshNodes();
+            }, 1000);
+          }
         }
       } catch {
         // Ignore non-json payloads.

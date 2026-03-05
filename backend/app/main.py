@@ -16,7 +16,7 @@ from .api.ws import router as ws_router
 from .db import SessionLocal, init_db
 from .live_bus import LiveEventBus
 from .mqtt_worker import MqttWorker
-from .services.command_service import CommandService, mark_timed_out_commands
+from .services.command_service import CommandService
 from .services.ingest_service import IngestService
 from .services.status_service import StatusService
 from .settings import get_settings
@@ -24,9 +24,9 @@ from .settings import get_settings
 
 async def _command_timeout_loop(app: FastAPI) -> None:
     while True:
-        await asyncio.sleep(1)
+        await asyncio.sleep(5)
         with SessionLocal() as db:
-            timed_out_ids = mark_timed_out_commands(db)
+            timed_out_ids = app.state.command_service.mark_timed_out(db)
         for command_id in timed_out_ids:
             await app.state.live_bus.broadcast(
                 {
@@ -79,7 +79,6 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
-    allow_credentials=True,
 )
 
 app.include_router(nodes_router)
