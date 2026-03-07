@@ -147,3 +147,63 @@ class DashboardPlotConfig(Base):
     scope: Mapped[str] = mapped_column(String(32), unique=True, default="global")
     config_json: Mapped[dict] = mapped_column(JSON)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
+
+
+# ---------------------------------------------------------------------------
+# BME680 sensor catalog and burn-in / warm-up tracking
+# ---------------------------------------------------------------------------
+
+class Bme680Sensor(Base):
+    """One row per physical BME680 chip, keyed by calibration-data CRC32."""
+
+    __tablename__ = "bme680_sensors"
+
+    uid: Mapped[str] = mapped_column(String(8), primary_key=True)   # 8-char hex CRC32
+    sid: Mapped[str] = mapped_column(String(128), default="")        # last known sensor ID
+    node_id: Mapped[str] = mapped_column(String(128), default="")    # last known node
+    first_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    last_seen: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Bme680BurnIn(Base):
+    """
+    One row per burn-in attempt for a given BME680.
+    Multiple rows per UID are allowed; the highest id is the current state.
+
+    State machine:
+      in_progress=True,  burn_in_successful=False  → actively accumulating hours
+      in_progress=False, retry_needed=True          → interrupted before 48 h
+      in_progress=False, burn_in_successful=True    → completed successfully
+
+    A new row is created each time the sensor is detected after a reboot
+    that interrupted a previous in-progress attempt.
+    """
+
+    __tablename__ = "bme680_burn_ins"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    uid: Mapped[str] = mapped_column(ForeignKey("bme680_sensors.uid", ondelete="CASCADE"), index=True)
+    burn_in_successful: Mapped[bool] = mapped_column(Boolean, default=False)
+    in_progress: Mapped[bool] = mapped_column(Boolean, default=True)
+    start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    end_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    hours_elapsed: Mapped[float] = mapped_column(Float, default=0.0)
+    retry_needed: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_telemetry_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class Bme680WarmUp(Base):
+    """
+    One row per 30-minute warm-up event after a power-on, recorded only once
+    the initial 48-hour burn-in is complete.  The firmware sets warming_up=True
+    for the first WARM_UP_DURATION_S seconds after each boot; the backend
+    creates a record when that flag first arrives and closes it when it clears.
+    """
+
+    __tablename__ = "bme680_warm_ups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    uid: Mapped[str] = mapped_column(ForeignKey("bme680_sensors.uid", ondelete="CASCADE"), index=True)
+    power_on_ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    warm_up_complete_ts: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed: Mapped[bool] = mapped_column(Boolean, default=False)

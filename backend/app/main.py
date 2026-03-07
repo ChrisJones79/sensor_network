@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from .api.bme680 import router as bme680_router
 from .api.commands import router as commands_router
 from .api.commissioning import router as commissioning_router
 from .api.db_admin import router as db_admin_router
@@ -88,6 +89,7 @@ app.include_router(commands_router)
 app.include_router(commissioning_router)
 app.include_router(db_admin_router)
 app.include_router(ws_router)
+app.include_router(bme680_router)
 
 
 @app.get("/health")

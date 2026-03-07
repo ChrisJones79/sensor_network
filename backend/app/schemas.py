@@ -178,6 +178,9 @@ class DBExportRequest(BaseModel):
         "command_log",
         "ack_log",
         "dashboard_plot_configs",
+        "bme680_sensors",
+        "bme680_burn_ins",
+        "bme680_warm_ups",
     ]
     format: Literal["json", "csv"] = "json"
     limit: int = Field(default=5000, ge=1, le=50000)
@@ -193,3 +196,76 @@ class DBStatsResponse(BaseModel):
     db_size_bytes: int
     table_counts: dict[str, int]
     latest_timestamps: dict[str, datetime | None]
+
+
+# ---------------------------------------------------------------------------
+# BME680 catalog / burn-in / warm-up schemas
+# ---------------------------------------------------------------------------
+
+class Bme680RegisterRequest(BaseModel):
+    """Posted by the ESP32-CAM (or a gateway script) whenever it receives a
+    BLE advertisement from an ESP32-C3 BME680 node."""
+
+    uid: str = Field(
+        description="8-character lowercase hex CRC32 of the sensor calibration bytes.",
+        min_length=8,
+        max_length=8,
+    )
+    sid: str = Field(description="Sensor ID string reported by the node (e.g. 'bme680_0').")
+    node_id: str = Field(description="Node that relayed this registration (e.g. CAM MAC or C3 BT MAC).")
+    warming_up: bool = Field(
+        description="True during the first 30 minutes after a power-on, as reported by firmware."
+    )
+
+
+class Bme680BurnInResponse(BaseModel):
+    id: int
+    uid: str
+    burn_in_successful: bool
+    in_progress: bool
+    start_time: datetime
+    end_time: datetime | None
+    hours_elapsed: float
+    retry_needed: bool
+    last_telemetry_at: datetime | None
+
+
+class Bme680WarmUpResponse(BaseModel):
+    id: int
+    uid: str
+    power_on_ts: datetime
+    warm_up_complete_ts: datetime | None
+    completed: bool
+
+
+class Bme680RegisterResponse(BaseModel):
+    uid: str
+    is_new: bool
+    burn_in_successful: bool
+    burn_in_in_progress: bool
+    hours_elapsed: float
+    retry_needed: bool
+    warm_up_active: bool
+
+
+class Bme680SensorSummary(BaseModel):
+    uid: str
+    sid: str
+    node_id: str
+    first_seen: datetime
+    last_seen: datetime
+    burn_in_successful: bool
+    burn_in_in_progress: bool
+    hours_elapsed: float
+    retry_needed: bool
+    warm_up_count: int
+
+
+class Bme680SensorDetail(BaseModel):
+    uid: str
+    sid: str
+    node_id: str
+    first_seen: datetime
+    last_seen: datetime
+    burn_ins: list[Bme680BurnInResponse]
+    warm_ups: list[Bme680WarmUpResponse]

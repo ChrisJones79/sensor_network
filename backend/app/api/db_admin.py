@@ -11,6 +11,9 @@ from sqlalchemy.orm import Session
 from ..deps import get_db
 from ..models import (
     AckLog,
+    Bme680BurnIn,
+    Bme680Sensor,
+    Bme680WarmUp,
     ChannelSample,
     CommandLog,
     DashboardPlotConfig,
@@ -35,6 +38,9 @@ TABLE_MAP = {
     "command_log": CommandLog,
     "ack_log": AckLog,
     "dashboard_plot_configs": DashboardPlotConfig,
+    "bme680_sensors": Bme680Sensor,
+    "bme680_burn_ins": Bme680BurnIn,
+    "bme680_warm_ups": Bme680WarmUp,
 }
 
 TS_COLUMN_MAP = {
