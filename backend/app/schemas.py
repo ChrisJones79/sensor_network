@@ -207,7 +207,7 @@ class Bme680RegisterRequest(BaseModel):
     BLE advertisement from an ESP32-C3 BME680 node."""
 
     uid: str = Field(
-        description="8-character lowercase hex CRC32 of the sensor calibration bytes.",
+        description="8-character lowercase hex of the factory-programmed UID from BME680 registers 0x83–0x86.",
         min_length=8,
         max_length=8,
     )

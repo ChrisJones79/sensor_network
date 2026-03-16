@@ -25,7 +25,7 @@
  *    [4 bytes]            Pressure     uint32 LE Pa        (e.g. 101325)
  *    [4 bytes]            Gas resist.  uint32 LE Ohm
  *    [1 byte]             Flags: bit0=TPH valid, bit1=gas valid, bit2=warming_up
- *    [4 bytes]            BME680 UID   uint32 LE  CRC32 of calibration bytes
+ *    [4 bytes]            BME680 UID   uint32 LE  factory-programmed (reg 0x83)
  *
  * ---- Build-time config (set in platformio.ini build_flags) ----
  *
@@ -118,6 +118,7 @@
 #define BME680_REG_CTRL_MEAS      0x74U  /* osrs_t[7:5], osrs_p[4:2], mode[1:0] */
 #define BME680_REG_CONFIG         0x75U  /* filter[4:2] */
 #define BME680_REG_COEFF1         0x8AU  /* 23 calibration bytes */
+#define BME680_REG_UNIQUE_ID      0x83U  /* 4 bytes, factory-programmed (undocumented) */
 #define BME680_REG_CHIP_ID        0xD0U
 #define BME680_REG_RESET          0xE0U
 #define BME680_REG_COEFF2         0xE1U  /* 14 calibration bytes */
@@ -253,23 +254,6 @@ static esp_err_t i2c_write_byte(uint8_t reg, uint8_t val)
 }
 
 /* -------------------------------------------------------------------------
- * CRC32 (ISO 3309 / Ethernet polynomial 0xEDB88320, reflected)
- * Used to derive a unique hardware ID from the BME680 calibration bytes.
- * ---------------------------------------------------------------------- */
-
-static uint32_t crc32_compute(const uint8_t *data, size_t len)
-{
-    uint32_t crc = 0xFFFFFFFFU;
-    for (size_t i = 0; i < len; i++) {
-        crc ^= data[i];
-        for (int b = 0; b < 8; b++) {
-            crc = (crc >> 1) ^ (0xEDB88320U & (uint32_t)(-(int32_t)(crc & 1U)));
-        }
-    }
-    return crc ^ 0xFFFFFFFFU;
-}
-
-/* -------------------------------------------------------------------------
  * BME680 calibration read
  *
  * Bosch BME680/BME68x calibration register map:
@@ -287,16 +271,6 @@ static bool bme680_read_calibration(void)
     if (i2c_read(BME680_REG_COEFF1, c1, sizeof(c1)) != ESP_OK) return false;
     if (i2c_read(BME680_REG_COEFF2, c2, sizeof(c2)) != ESP_OK) return false;
     if (i2c_read(0x00U,             c3, sizeof(c3)) != ESP_OK) return false;
-
-    /* Compute hardware UID from raw calibration bytes.
-     * The BME680 has no factory-programmed UID register; however, the
-     * calibration coefficients are unique per chip due to manufacturing
-     * variation, making CRC32(c1 || c2) a reliable chip fingerprint. */
-    uint8_t calib_raw[37];
-    memcpy(calib_raw,        c1, sizeof(c1));
-    memcpy(calib_raw + 23,   c2, sizeof(c2));
-    s_bme680_uid = crc32_compute(calib_raw, sizeof(calib_raw));
-    ESP_LOGI("bme680_calib", "BME680 UID: %08" PRIx32, s_bme680_uid);
 
     /* Temperature (coeff1 offsets) */
     s_calib.par_t2  = (int16_t) ((uint16_t)c1[1] << 8 | c1[0]);
@@ -492,6 +466,23 @@ static bool bme680_init(void)
         return false;
     }
     ESP_LOGI(TAG, "BME680: chip ID 0x%02X OK", chip_id);
+
+    /* Read factory-programmed unique ID from reserved registers 0x83..0x86.
+     * Formula confirmed by Bosch (community post, rmax thread):
+     *   uid = (((uid_regs[3] + (uid_regs[2] << 8)) & 0x7FFF) << 16)
+     *         + (uid_regs[1] << 8) + uid_regs[0]
+     * These registers are not in the public datasheet but are stable across
+     * power cycles and unique per chip. */
+    uint8_t uid_regs[4] = {0};
+    if (i2c_read(BME680_REG_UNIQUE_ID, uid_regs, 4) == ESP_OK) {
+        s_bme680_uid =
+            ((((uint32_t)uid_regs[3] + ((uint32_t)uid_regs[2] << 8)) & 0x7FFFU) << 16) +
+            (((uint32_t)uid_regs[1]) << 8) +
+            (uint32_t)uid_regs[0];
+        ESP_LOGI(TAG, "BME680: UID %08" PRIx32, s_bme680_uid);
+    } else {
+        ESP_LOGW(TAG, "BME680: UID read failed — UID will be 0x00000000 in advertisement");
+    }
 
     if (!bme680_read_calibration()) {
         ESP_LOGE(TAG, "BME680: calibration read failed");
